@@ -24,3 +24,13 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Temp / test files
+cookie.txt
+cookie2.txt
+c
+
+# Large audio files (not needed for deployment)
+# static/music/*.mp3
+# static/music/*.wav
+# static/music/*.flac
