@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Li Jia's Portfolio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .page-section { display: none; animation: fadeInUp 0.5s cubic-bezier(0.16,1,0.3,1) forwards; }
+        .page-section.active { display: block; }
+        .player-spacer { height: 180px; }
+        .fixed-player {
+            position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+            padding: 15px 20px; background: var(--player-bg);
+            border-top: 1px solid rgba(0,245,212,0.15); backdrop-filter: blur(20px);
+        }
+        .fixed-player .player-inner { max-width: 820px; margin: 0 auto; }
+        .player-compact .controls { justify-content: center; }
+        .player-compact .progress-track { margin-top: 10px; }
+        .nav-link.active-tab {
+            background: rgba(0,245,212,0.12); border-color: var(--accent-teal);
+            color: var(--accent-teal) !important;
+        }
+        .gb-container {
+            max-width: 820px; margin: 0 auto 200px; padding: 35px;
+            background: var(--bg-glass); backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass); border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-glass);
+            animation: fadeInUp 0.8s cubic-bezier(0.16,1,0.3,1) forwards;
+            position: relative; overflow: hidden;
+        }
+        .gb-container::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-teal), var(--accent-purple), transparent);
+            background-size: 200% 100%; animation: shimmer 3s ease-in-out infinite;
+        }
+        .msg-hidden { display: none !important; }
+    </style>
+</head>
+<body data-theme="{{ theme|default('dark') }}">
+    <!-- ===== 首页 ===== -->
+    <div id="page-home" class="page-section active">
+        <div class="container" style="margin-bottom: 200px;">
+            <nav class="nav-bar">
+                <a href="#" class="nav-link active-tab" onclick="switchPage('home')">🏠 首页</a>
+                <a href="#" class="nav-link" onclick="switchPage('guestbook')">💬 留言板</a>
+                {% if current_user.is_authenticated %}
+                <span style="color:var(--text-secondary);line-height:2.5;font-size:0.9em;">👤 {{ current_user.username }}</span>
+                {% if current_user.username == 'admin' %}
+                <a href="/music-manage" class="nav-link" style="border-color:rgba(255,215,0,0.3);color:gold!important;">🎵 管理音乐</a>
+                {% endif %}
+                <a href="/logout" class="nav-link" style="border-color:rgba(255,71,87,0.3);color:var(--danger)!important;">🚪 退出</a>
+                {% else %}
+                <a href="/login" class="nav-link">🔐 登录</a>
+                {% endif %}
+                <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" title="切换主题">🌙</button>
+            </nav>
+
+            <h1>Hello, I'm lith1um</h1>
+            <p><strong>身份：</strong> 学生</p>
+            <hr>
+
+            <h3>🧰 核心技能栈</h3>
+            <div>
+                <span class="badge">C / C++</span>
+                <span class="badge">Linux Kernel</span>
+                <span class="badge">Assembly</span>
+                <span class="badge">Embedded Systems</span>
+                <span class="badge">Python / Flask</span>
+            </div>
+
+            <h3>👤 个人简介</h3>
+            <p>普通人</p>
+
+            <!-- <h3>🏆 比赛经历</h3>
+            <ul>
+                <li><strong>CCPC广东省赛</strong>：铜奖</li>
+                <li><strong>蓝桥杯c/c++ A组省赛</strong>：一等奖</li>
+                <li><strong>APMCM亚太地区大学生数学建模竞赛</strong>：三等奖</li>
+                <li><strong>CCF算法能力大赛</strong>：三等奖</li>
+                <li><strong>美国大学生数学建模竞赛</strong>：三等奖</li>
+            </ul> -->
+
+            <canvas id="visualizer" style="width:100%;height:160px;background:rgba(0,0,0,0.6);border-radius:12px;border:1px solid rgba(0,245,212,0.15);box-shadow:0 0 30px rgba(0,245,212,0.08), inset 0 0 30px rgba(0,0,0,0.3);"></canvas>
+
+            <!-- 播放列表 -->
+            <div class="player-card" style="margin-top:25px;">
+                <div class="playlist-toggle" onclick="togglePlaylist()">
+                    ▶ <span class="arrow open">▶</span> <span>播放列表</span>
+                </div>
+                <div class="playlist-body open" id="playlist-body">
+                    <ul class="music-list" style="color:var(--accent-teal);">
+                        {% for m in musics %}
+                        <li>
+                            <span class="music-link" data-src="{{ url_for('static', filename='music/' + m.file_name) }}" onclick="changeTrack('{{ url_for('static', filename='music/' + m.file_name) }}', '{{ m.title }}')">
+                                ▶ {{ m.title }}
+                            </span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 留言板 ===== -->
+    <div id="page-guestbook" class="page-section">
+        <div class="gb-container">
+            <nav class="nav-bar">
+                <a href="#" class="nav-link" onclick="switchPage('home')">🏠 首页</a>
+                <a href="#" class="nav-link active-tab" onclick="switchPage('guestbook')">💬 留言板</a>
+                {% if current_user.is_authenticated %}
+                <span style="color:var(--text-secondary);line-height:2.5;font-size:0.9em;">👤 {{ current_user.username }}</span>
+                <a href="/logout" class="nav-link" style="border-color:rgba(255,71,87,0.3);color:var(--danger)!important;">🚪 退出</a>
+                {% else %}
+                <a href="/login" class="nav-link">🔐 登录</a>
+                {% endif %}
+                <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn-gb" title="切换主题">🌙</button>
+            </nav>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <h1>💬 留言板</h1>
+
+            <form id="guestbook-form" action="/guestbook" method="POST" onsubmit="submitGuestbook(event); return false;">
+                <input type="text" name="name" placeholder="你的名字" required class="form-input" style="margin-bottom:10px;">
+                <textarea name="content" placeholder="想说的话（支持 Markdown 语法）" required class="form-textarea" style="margin-bottom:12px;"></textarea>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button type="submit" class="btn btn-primary">🚀 发射！</button>
+                    <span style="color:var(--text-secondary);font-size:0.8em;">💡 Markdown 语法：**加粗** *斜体* `代码` [链接](url)</span>
+                </div>
+            </form>
+
+            <hr>
+
+            <h3>📝 往期留言 (<span id="msg-count">{{ messages|length }}</span>)</h3>
+
+            <div class="search-wrap">
+                <input type="text" class="search-bar" id="search-input" placeholder="搜索留言内容..." oninput="filterMessages()">
+            </div>
+
+            <div id="msg-list">
+                {% for msg in messages %}
+                {% set color = namespace(hash=0) %}
+                {% set initial = msg.name[0]|upper if msg.name else '?' %}
+                <div class="msg-card" data-msg-id="{{ msg.id }}">
+                    <div class="msg-avatar" style="background:hsl({{ (msg.name|hash)%360 }}, 50%, 55%)">{{ initial }}</div>
+                    <div class="msg-content">
+                        <div class="msg-header">
+                            <strong>{{ msg.name }}</strong>
+                            <span class="msg-time">#{{ loop.revindex }} · {{ msg.created_at|time_ago }}</span>
+                        </div>
+                        <div class="msg-body">{{ msg.content }}</div>
+                    </div>
+                    {% if current_user.is_authenticated %}
+                    <form class="delete-form" method="POST" action="{{ url_for('delete_message', msg_id=msg.id) }}" onsubmit="return deleteMessage(event, this, {{ msg.id }})">
+                        <button type="submit" class="btn btn-danger">🗑️</button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+
+            <div id="empty-msg" class="empty-state" style="display:{% if messages %}none{% else %}block{% endif %};">
+                📭 还没有留言，快来抢沙发吧！
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 底部固定播放器 ===== -->
+    <div class="fixed-player player-compact">
+        <div class="player-inner">
+            <div class="controls" style="justify-content:center;flex-wrap:wrap;gap:8px;">
+                <h4 style="color:var(--accent-teal);margin-right:10px;font-size:0.9em;">🎧 <span id="track-name">未选择</span></h4>
+                <button onclick="togglePlay()" id="play-btn" class="ctrl-btn" style="min-width:90px;">▶ PLAY</button>
+                <button onclick="playPrev()" id="prev-btn" class="ctrl-btn">⏮</button>
+                <button onclick="playNext()" id="next-btn" class="ctrl-btn">⏭</button>
+                <button onclick="toggleShuffle()" id="shuffle-btn" class="ctrl-btn" style="border-color:#8b949e;color:#8b949e;" title="随机播放">🔀</button>
+                <button onclick="toggleLoop()" id="loop-btn" class="ctrl-btn" style="border-color:#8b949e;color:#8b949e;" title="循环模式">🔁</button>
+                <span style="color:var(--text-secondary);font-size:0.85em;margin-left:8px;">🔊</span>
+                <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8" style="width:70px;">
+            </div>
+            <audio id="main-audio" src=""></audio>
+            <div class="progress-track" id="progress-track" onclick="seekProgress(event)" style="margin-top:6px;height:5px;">
+                <div class="progress-bar" id="progress"></div>
+                <div class="progress-thumb" id="progress-thumb"></div>
+            </div>
+            <div class="time-display" style="font-size:0.7em;">
+                <span id="current-time">0:00</span>
+                <span id="total-time">0:00</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== DOM =====
+        const audio = document.getElementById('main-audio');
+        const playBtn = document.getElementById('play-btn');
+        const progressBar = document.getElementById('progress');
+        const progressThumb = document.getElementById('progress-thumb');
+        const progressTrack = document.getElementById('progress-track');
+        const trackName = document.getElementById('track-name');
+        const currentTimeEl = document.getElementById('current-time');
+        const totalTimeEl = document.getElementById('total-time');
+        const volumeSlider = document.getElementById('volume-slider');
+        const shuffleBtn = document.getElementById('shuffle-btn');
+        const loopBtn = document.getElementById('loop-btn');
+        const themeBtns = document.querySelectorAll('.theme-toggle');
+        let isShuffle = false;
+        let isLoop = false;
+        let playHistory = [];
+
+        // ===== 从 localStorage 恢复音量 =====
+        (function() {
+            const savedVol = localStorage.getItem('player_volume');
+            if (savedVol !== null) {
+                const vol = parseFloat(savedVol);
+                audio.volume = vol;
+                volumeSlider.value = vol;
+            }
+            const savedTheme = localStorage.getItem('site_theme') || 'dark';
+            document.body.setAttribute('data-theme', savedTheme);
+            themeBtns.forEach(b => b.textContent = savedTheme === 'dark' ? '🌙' : '☀️');
+        })();
+
+        // ===== 主题切换 =====
+        function toggleTheme() {
+            const body = document.body;
+            const current = body.getAttribute('data-theme') || 'dark';
+            const next = current === 'dark' ? 'light' : 'dark';
+            body.setAttribute('data-theme', next);
+            localStorage.setItem('site_theme', next);
+            themeBtns.forEach(b => b.textContent = next === 'dark' ? '🌙' : '☀️');
+        }
+
+        // ===== 页面切换 =====
+        function switchPage(page) {
+            document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
+            document.getElementById('page-' + page).classList.add('active');
+            document.querySelectorAll('.nav-link').forEach(el => {
+                el.classList.remove('active-tab');
+                if ((page === 'home' && el.textContent.includes('首页')) ||
+                    (page === 'guestbook' && el.textContent.includes('留言板'))) {
+                    el.classList.add('active-tab');
+                }
+            });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        switchPage('home');
+
+        // ===== 留言板搜索 =====
+        function filterMessages() {
+            const q = document.getElementById('search-input').value.trim().toLowerCase();
+            const cards = document.querySelectorAll('#msg-list .msg-card');
+            let visibleCount = 0;
+            cards.forEach(card => {
+                const body = card.querySelector('.msg-body');
+                if (!body) return;
+                const text = (body.textContent || body.innerText).toLowerCase();
+                if (!q || text.includes(q)) {
+                    card.classList.remove('msg-hidden');
+                    visibleCount++;
+                    // 高亮搜索词
+                    if (q) {
+                        const orig = body.innerHTML;
+                        const idx = orig.toLowerCase().indexOf(q);
+                        if (idx !== -1) {
+                            body.innerHTML = orig.substring(0, idx) +
+                                '<span class="highlight">' + orig.substring(idx, idx + q.length) + '</span>' +
+                                orig.substring(idx + q.length);
+                        }
+                    }
+                } else {
+                    card.classList.add('msg-hidden');
+                }
+            });
+            document.getElementById('msg-count').textContent = visibleCount;
+            document.getElementById('empty-msg').style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+
+        // ===== Markdown 渲染 =====
+        function renderMarkdown() {
+            document.querySelectorAll('.msg-body').forEach(el => {
+                const text = el.textContent || el.innerText;
+                if (text && typeof marked !== 'undefined') {
+                    el.innerHTML = marked.parse(text);
+                }
+            });
+        }
+
+        // ===== 留言板 AJAX =====
+        async function submitGuestbook(event) {
+            event.preventDefault();
+            const form = document.getElementById('guestbook-form');
+            const formData = new FormData(form);
+            try {
+                const res = await fetch('/guestbook', {
+                    method: 'POST',
+                    body: new URLSearchParams({ name: formData.get('name'), content: formData.get('content') }),
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (res.ok) {
+                    form.reset();
+                    await refreshGuestbook();
+                }
+            } catch(e) { alert('提交失败，请重试'); }
+            return false;
+        }
+
+        async function deleteMessage(event, form, msgId) {
+            event.preventDefault();
+            if (!confirm('确定要删除这条留言吗？')) return false;
+            try {
+                const res = await fetch('/delete/' + msgId, { method: 'POST' });
+                if (res.ok) { await refreshGuestbook(); }
+                else { alert('删除失败，可能需要先登录'); }
+            } catch(e) { alert('删除失败'); }
+            return false;
+        }
+
+        async function refreshGuestbook() {
+            try {
+                const res = await fetch('/guestbook?ajax=1');
+                const html = await res.text();
+                document.getElementById('msg-list').innerHTML = html;
+                renderMarkdown();
+                const count = document.querySelectorAll('#msg-list .msg-card:not(.msg-hidden)').length;
+                const total = document.querySelectorAll('#msg-list .msg-card').length;
+                document.getElementById('msg-count').textContent = total;
+                document.getElementById('empty-msg').style.display = total === 0 ? 'block' : 'none';
+                // 清空搜索
+                const searchInput = document.getElementById('search-input');
+                if (searchInput) searchInput.value = '';
+            } catch(e) { console.error('刷新留言失败', e); }
+        }
+
+        // ===== 工具函数 =====
+        function formatTime(seconds) {
+            if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return m + ':' + (s < 10 ? '0' : '') + s;
+        }
+
+        function getCurrentTrackIndex() {
+            const tracks = document.querySelectorAll('.music-link');
+            for (let i = 0; i < tracks.length; i++) {
+                if (tracks[i].getAttribute('data-src') && audio.src.includes(tracks[i].getAttribute('data-src'))) return i;
+            }
+            return -1;
+        }
+
+        // ===== 播放列表折叠 =====
+        function togglePlaylist() {
+            const body = document.getElementById('playlist-body');
+            const arrow = document.querySelector('.playlist-toggle .arrow');
+            body.classList.toggle('open');
+            arrow.classList.toggle('open');
+        }
+
+        // ===== 音频事件 =====
+        audio.addEventListener('timeupdate', () => {
+            if (audio.duration) {
+                const pct = (audio.currentTime / audio.duration) * 100;
+                progressBar.style.width = Math.min(pct, 100) + '%';
+                progressThumb.style.left = Math.min(pct, 100) + '%';
+                currentTimeEl.textContent = formatTime(audio.currentTime);
+            }
+        });
+        audio.addEventListener('loadedmetadata', () => { totalTimeEl.textContent = formatTime(audio.duration); });
+        audio.addEventListener('ended', () => {
+            if (isLoop) { audio.currentTime = 0; audio.play(); return; }
+            playNext();
+        });
+
+        // ===== 音量 =====
+        volumeSlider.addEventListener('input', function() {
+            audio.volume = parseFloat(this.value);
+            localStorage.setItem('player_volume', this.value);
+        });
+
+        function seekProgress(event) {
+            if (!audio.duration) return;
+            const rect = progressTrack.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+            audio.currentTime = pct * audio.duration;
+            progressBar.style.width = (pct * 100) + '%';
+            progressThumb.style.left = (pct * 100) + '%';
+        }
+
+        // ===== 霓虹频谱可视化（赛博朋克风格） =====
+        let audioCtx, analyser, source, dataArray, timeData, canvas, canvasCtx;
+        let vizParticles = [];
+        let vizFrame = 0;
+
+        function setupVisualizer() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            source = audioCtx.createMediaElementSource(audio);
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination);
+            analyser.fftSize = 256;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            timeData = new Uint8Array(analyser.frequencyBinCount);
+            canvas = document.getElementById('visualizer');
+            if (!canvas) return;
+            canvasCtx = canvas.getContext('2d');
+            // 初始化粒子
+            for (let i = 0; i < 20; i++) {
+                vizParticles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: (Math.random() - 0.5) * 0.5,
+                    size: Math.random() * 2 + 1,
+                    alpha: Math.random() * 0.4 + 0.1
+                });
+            }
+            drawNeon();
+        }
+
+        function drawNeon() {
+            requestAnimationFrame(drawNeon);
+            if (!analyser || !canvasCtx) return;
+            analyser.getByteFrequencyData(dataArray);
+            analyser.getByteTimeDomainData(timeData);
+            if (!canvasCtx) return;
+            const W = canvas.width, H = canvas.height;
+            const cx = W / 2, cy = H / 2;
+
+            // 半透明渐变背景（拖尾效果）
+            canvasCtx.fillStyle = 'rgba(0,0,0,0.25)';
+            canvasCtx.fillRect(0, 0, W, H);
+
+            // ---- 底部发光横线 ----
+            for (let k = 0; k < 3; k++) {
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(0, H - 4 + k * 2);
+                canvasCtx.lineTo(W, H - 4 + k * 2);
+                canvasCtx.strokeStyle = `rgba(0,245,212,${0.03 + k * 0.02})`;
+                canvasCtx.lineWidth = 1;
+                canvasCtx.stroke();
+            }
+
+            // ---- 中心镜像条形频谱（核心！）----
+            const bars = dataArray.length;
+            const barW = (W / bars) * 1.8;
+            const barGap = 1;
+            let totalW = 0;
+
+            for (let i = 0; i < bars; i++) {
+                // 用正弦波让条形高度更平滑
+                const raw = dataArray[i];
+                const norm = raw / 255;
+                const smooth = Math.pow(norm, 0.7) * (0.85 + 0.15 * Math.sin(i * 0.3 + vizFrame * 0.02));
+                const barH = Math.max(1, smooth * (H * 0.55));
+
+                // 霓虹渐变：靛蓝 → 青 → 品红 → 粉
+                const t = i / bars;
+                const hue = 170 + t * 120 + 10 * Math.sin(i * 0.1 + vizFrame * 0.03);
+                const sat = 90 + 10 * Math.sin(i * 0.2);
+                const lit = 55 + 25 * smooth;
+
+                // 上侧条形（向上）
+                const x = i * (barW + barGap);
+                const yTop = cy - barH;
+
+                // 主条形 —— 渐变
+                const gradTop = canvasCtx.createLinearGradient(x, yTop, x, cy);
+                gradTop.addColorStop(0, `hsla(${hue}, ${sat}%, ${lit}%, 0.95)`);
+                gradTop.addColorStop(0.5, `hsla(${hue + 20}, ${sat}%, ${lit - 10}%, 0.7)`);
+                gradTop.addColorStop(1, `hsla(${hue + 40}, ${sat - 20}%, ${lit - 20}%, 0)`);
+                canvasCtx.fillStyle = gradTop;
+                canvasCtx.fillRect(x, yTop, barW, barH);
+
+                // 条形发光光晕
+                canvasCtx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+                canvasCtx.shadowBlur = 18 + 12 * smooth;
+                canvasCtx.fillRect(x, yTop, barW, barH * 0.15);
+                canvasCtx.shadowBlur = 0;
+
+                // 上侧顶端高光亮点
+                if (smooth > 0.3) {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x + barW / 2, yTop, 3 + 4 * smooth, 0, Math.PI * 2);
+                    canvasCtx.fillStyle = `hsla(${hue + 10}, 100%, 80%, ${0.4 + 0.5 * smooth})`;
+                    canvasCtx.shadowColor = `hsl(${hue}, 100%, 70%)`;
+                    canvasCtx.shadowBlur = 25;
+                    canvasCtx.fill();
+                    canvasCtx.shadowBlur = 0;
+                }
+
+                // ---- 下侧条形（向下镜像）----
+                const yBot = cy + 2;
+                const gradBot = canvasCtx.createLinearGradient(x, yBot, x, yBot + barH);
+                gradBot.addColorStop(0, `hsla(${hue + 40}, ${sat - 20}%, ${lit - 20}%, 0)`);
+                gradBot.addColorStop(0.5, `hsla(${hue + 20}, ${sat}%, ${lit - 10}%, 0.7)`);
+                gradBot.addColorStop(1, `hsla(${hue}, ${sat}%, ${lit}%, 0.95)`);
+                canvasCtx.fillStyle = gradBot;
+                canvasCtx.fillRect(x, yBot, barW, barH);
+
+                // 下侧发光光晕
+                canvasCtx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+                canvasCtx.shadowBlur = 18 + 12 * smooth;
+                canvasCtx.fillRect(x, yBot + barH * 0.85, barW, barH * 0.15);
+                canvasCtx.shadowBlur = 0;
+
+                // 下侧底端高光亮点
+                if (smooth > 0.3) {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x + barW / 2, yBot + barH, 3 + 4 * smooth, 0, Math.PI * 2);
+                    canvasCtx.fillStyle = `hsla(${hue + 10}, 100%, 80%, ${0.4 + 0.5 * smooth})`;
+                    canvasCtx.shadowColor = `hsl(${hue}, 100%, 70%)`;
+                    canvasCtx.shadowBlur = 25;
+                    canvasCtx.fill();
+                    canvasCtx.shadowBlur = 0;
+                }
+
+                totalW = x + barW;
+            }
+
+            // ---- 中心分割线（一条细光带）----
+            const glowGrad = canvasCtx.createLinearGradient(0, cy - 2, W, cy - 2);
+            glowGrad.addColorStop(0, 'transparent');
+            glowGrad.addColorStop(0.15, 'rgba(0,245,212,0.2)');
+            glowGrad.addColorStop(0.5, 'rgba(0,245,212,0.4)');
+            glowGrad.addColorStop(0.85, 'rgba(0,245,212,0.2)');
+            glowGrad.addColorStop(1, 'transparent');
+            canvasCtx.fillStyle = glowGrad;
+            canvasCtx.fillRect(0, cy - 1, totalW, 2);
+
+            // ---- 波形线（覆盖在频谱上方）----
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(0, H / 2 + (timeData[0] - 128) / 3);
+            for (let i = 1; i < timeData.length; i++) {
+                const xP = (i / timeData.length) * totalW;
+                const yP = H / 2 + (timeData[i] - 128) / 3;
+                canvasCtx.lineTo(xP, yP);
+            }
+            canvasCtx.strokeStyle = 'rgba(0,245,212,0.25)';
+            canvasCtx.lineWidth = 1.5;
+            canvasCtx.shadowColor = 'rgba(0,245,212,0.3)';
+            canvasCtx.shadowBlur = 8;
+            canvasCtx.stroke();
+            canvasCtx.shadowBlur = 0;
+
+            // ---- 浮动粒子 ---- 
+            for (const p of vizParticles) {
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.x < 0 || p.x > W) p.vx *= -1;
+                if (p.y < 0 || p.y > H) p.vy *= -1;
+                canvasCtx.beginPath();
+                canvasCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                canvasCtx.fillStyle = `rgba(0,245,212,${p.alpha + 0.1 * Math.sin(vizFrame * 0.02 + p.x)})`;
+                canvasCtx.fill();
+            }
+
+            // ---- 角落科技感装饰 ---- 
+            // 左上角
+            canvasCtx.strokeStyle = 'rgba(0,245,212,0.12)';
+            canvasCtx.lineWidth = 1;
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(8, 0); canvasCtx.lineTo(8, 16);
+            canvasCtx.moveTo(0, 8); canvasCtx.lineTo(16, 8);
+            canvasCtx.stroke();
+            // 右上角
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(W - 8, 0); canvasCtx.lineTo(W - 8, 16);
+            canvasCtx.moveTo(W - 16, 8); canvasCtx.lineTo(W, 8);
+            canvasCtx.stroke();
+
+            vizFrame++;
+        }
+
+        // ===== 播放控制 =====
+        function togglePlay() {
+            if (!audio.src) { alert("请先从列表中选择一首歌！"); return; }
+            if (!audioCtx) setupVisualizer();
+            if (audio.paused) { audio.play(); playBtn.innerText = "⏸ PAUSE"; }
+            else { audio.pause(); playBtn.innerText = "▶ PLAY"; }
+        }
+
+        function changeTrack(src, name) {
+            if (!audioCtx) setupVisualizer();
+            const ci = getCurrentTrackIndex();
+            if (ci !== -1) { playHistory.push(ci); if (playHistory.length > 50) playHistory.shift(); }
+            audio.src = src;
+            trackName.textContent = name;
+            audio.play();
+            playBtn.innerText = "⏸ PAUSE";
+        }
+
+        function playNext() {
+            const tracks = document.querySelectorAll('.music-link');
+            if (tracks.length === 0) return;
+            let ci = getCurrentTrackIndex();
+            if (isShuffle) {
+                let ri; do { ri = Math.floor(Math.random() * tracks.length); } while (ri === ci && tracks.length > 1);
+                tracks[ri].click(); return;
+            }
+            if (ci === -1) { tracks[0].click(); return; }
+            tracks[(ci + 1) % tracks.length].click();
+        }
+
+        function playPrev() {
+            const tracks = document.querySelectorAll('.music-link');
+            if (tracks.length === 0) return;
+            if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+            if (playHistory.length > 0) {
+                const pi = playHistory.pop();
+                if (pi >= 0 && pi < tracks.length) { tracks[pi].click(); return; }
+            }
+            let ci = getCurrentTrackIndex();
+            if (ci === -1) { tracks[0].click(); return; }
+            tracks[(ci - 1 + tracks.length) % tracks.length].click();
+        }
+
+        function toggleShuffle() {
+            isShuffle = !isShuffle;
+            shuffleBtn.classList.toggle('active', isShuffle);
+        }
+
+        function toggleLoop() {
+            isLoop = !isLoop;
+            loopBtn.classList.toggle('active', isLoop);
+        }
+
+        // ===== 初始化 Markdown =====
+        document.addEventListener('DOMContentLoaded', renderMarkdown);
+        // 首次加载页面后立即渲染
+        renderMarkdown();
+    </script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>留言板 - Li Jia's Portfolio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .msg-hidden { display: none !important; }
+        .search-bar { width: 100%; padding: 10px 16px 10px 40px; background: var(--input-bg); border: 1px solid var(--border-glass); color: var(--text-primary); border-radius: 50px; font-family: inherit; font-size: 0.9em; outline: none; transition: all 0.3s ease; margin-bottom: 15px; }
+        .search-bar:focus { border-color: var(--accent-teal); box-shadow: 0 0 15px rgba(0,245,212,0.08); }
+        .search-wrap { position: relative; }
+        .search-wrap::before { content: '🔍'; position: absolute; left: 14px; top: 10px; font-size: 0.85em; z-index: 1; opacity: 0.6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav class="nav-bar">
+            <a href="/" class="nav-link">🏠 返回首页</a>
+            {% if current_user.is_authenticated %}
+            <span style="color:var(--text-secondary);line-height:2.5;font-size:0.9em;">👤 {{ current_user.username }}</span>
+            <a href="/logout" class="nav-link" style="border-color:rgba(255,71,87,0.3);color:var(--danger)!important;">🚪 退出</a>
+            {% else %}
+            <a href="/login" class="nav-link">🔐 登录</a>
+            {% endif %}
+        </nav>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <h1>💬 留言板</h1>
+
+        <form method="POST">
+            <input type="text" name="name" placeholder="你的名字" required class="form-input" style="margin-bottom:10px;">
+            <textarea name="content" placeholder="想说的话（支持 Markdown 语法）" required class="form-textarea" style="margin-bottom:12px;"></textarea>
+            <button type="submit" class="btn btn-primary">🚀 发射！</button>
+        </form>
+
+        <hr>
+
+        <h3>📝 往期留言 ({{ messages|length }})</h3>
+
+        <div class="search-wrap">
+            <input type="text" class="search-bar" id="search-input" placeholder="搜索留言内容..." oninput="filterMessages()">
+        </div>
+
+        {% for msg in messages %}
+        <div class="msg-card" data-msg-id="{{ msg.id }}">
+            <div class="msg-avatar" style="background:hsl({{ (msg.name|hash)%360 }}, 50%, 55%)">{{ msg.name[0]|upper if msg.name else '?' }}</div>
+            <div class="msg-content">
+                <div class="msg-header">
+                    <strong>{{ msg.name }}</strong>
+                    <span class="msg-time">#{{ loop.revindex }} · {{ msg.created_at|time_ago }}</span>
+                </div>
+                <div class="msg-body">{{ msg.content }}</div>
+            </div>
+            {% if current_user.is_authenticated %}
+            <form class="delete-form" method="POST" action="{{ url_for('delete_message', msg_id=msg.id) }}" onsubmit="return confirm('确定要删除「{{ msg.name }}」的这条留言吗？')">
+                <button type="submit" class="btn btn-danger">🗑️ 删除</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if not messages %}
+        <div class="empty-state">
+            📭 还没有留言，快来抢沙发吧！
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function renderMarkdown() {
+            document.querySelectorAll('.msg-body').forEach(el => {
+                const text = el.textContent || el.innerText;
+                if (text && typeof marked !== 'undefined') {
+                    el.innerHTML = marked.parse(text);
+                }
+            });
+        }
+
+        function filterMessages() {
+            const q = document.getElementById('search-input').value.trim().toLowerCase();
+            const cards = document.querySelectorAll('.msg-card');
+            let visibleCount = 0;
+            cards.forEach(card => {
+                const body = card.querySelector('.msg-body');
+                if (!body) return;
+                const text = (body.textContent || body.innerText).toLowerCase();
+                if (!q || text.includes(q)) {
+                    card.classList.remove('msg-hidden');
+                    visibleCount++;
+                } else {
+                    card.classList.add('msg-hidden');
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', renderMarkdown);
+    </script>
+</body>
+</html>
