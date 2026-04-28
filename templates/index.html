@@ -395,8 +395,9 @@
             progressThumb.style.left = (pct * 100) + '%';
         }
 
-        // ===== 霓虹频谱可视化（均衡版） =====
-        let audioCtx, analyser, source, dataArray, canvas, canvasCtx;
+        // ===== 全新霓虹频谱可视化 =====
+        let audioCtx, analyser, source, freqData, waveData, canvas, canvasCtx;
+        let smoothBar = []; // 平滑高度
 
         function setupVisualizer() {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -405,27 +406,33 @@
             source.connect(analyser);
             analyser.connect(audioCtx.destination);
             analyser.fftSize = 256;
-            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            freqData = new Uint8Array(analyser.frequencyBinCount);
+            waveData = new Uint8Array(analyser.frequencyBinCount);
             canvas = document.getElementById('visualizer');
             if (!canvas) return;
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
             canvasCtx = canvas.getContext('2d');
+            // 初始化平滑数组
+            const numBars = 48;
+            for (let i = 0; i < numBars; i++) smoothBar[i] = 0;
             drawNeon();
         }
 
         function resizeCanvas() {
             const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * (window.devicePixelRatio || 1);
-            canvas.height = rect.height * (window.devicePixelRatio || 1);
+            canvas.width = rect.width;
+            canvas.height = rect.height;
             canvasCtx = canvas.getContext('2d');
-            canvasCtx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
         }
 
         function drawNeon() {
             requestAnimationFrame(drawNeon);
             if (!analyser || !canvasCtx) return;
-            analyser.getByteFrequencyData(dataArray);
+            // 同时获取频率和波形数据
+            analyser.getByteFrequencyData(freqData);
+            analyser.getByteTimeDomainData(waveData);
+            
             const rect = canvas.getBoundingClientRect();
             const W = rect.width, H = rect.height;
 
@@ -433,62 +440,98 @@
             canvasCtx.fillStyle = '#000';
             canvasCtx.fillRect(0, 0, W, H);
 
-            const numBars = 64;
+            const numBars = 48;
             const barW = W / numBars - 1.5;
             const maxH = H * 0.85;
+            const centerY = H * 0.5;
 
-            // 计算全局平均能量
-            let totalEnergy = 0;
-            for (let i = 0; i < dataArray.length; i++) totalEnergy += dataArray[i];
-            const avgEnergy = totalEnergy / dataArray.length;
-
-            // 差分数组 - 削平低频优势
-            const eqValues = new Array(numBars);
-            let eqMax = 0;
+            // 为每个条形混合频率+波形数据，独立归一化
             for (let b = 0; b < numBars; b++) {
-                const p0 = Math.pow(b / numBars, 0.65);
-                const p1 = Math.pow((b + 1) / numBars, 0.65);
-                const lowIdx = Math.floor(p0 * dataArray.length);
-                const highIdx = Math.floor(p1 * dataArray.length);
-                let sum = 0, count = 0;
-                for (let i = lowIdx; i < highIdx && i < dataArray.length; i++) {
-                    sum += dataArray[i];
-                    count++;
+                // 1) 频率数据 - 取对数频段
+                const p0 = Math.pow(b / numBars, 0.7);
+                const p1 = Math.pow((b + 1) / numBars, 0.7);
+                const lowIdx = Math.floor(p0 * freqData.length);
+                const highIdx = Math.floor(p1 * freqData.length);
+                let freqSum = 0, freqCount = 0;
+                for (let i = lowIdx; i < highIdx && i < freqData.length; i++) {
+                    freqSum += freqData[i];
+                    freqCount++;
                 }
-                const raw = count > 0 ? sum / count : 0;
-                // 高频增益曲线：越靠右增益越大
-                const gain = 1 + (b / numBars) * 2.5;
-                eqValues[b] = Math.min(255, raw * gain);
-                if (eqValues[b] > eqMax) eqMax = eqValues[b];
-            }
+                const freqAvg = freqCount > 0 ? freqSum / freqCount : 0;
 
-            for (let b = 0; b < numBars; b++) {
-                const norm = eqMax > 0 ? eqValues[b] / eqMax : 0;
-                const barH = Math.max(1, norm * maxH);
+                // 2) 波形数据 - 取对应段的最大偏移
+                const waveLow = Math.floor(p0 * waveData.length);
+                const waveHigh = Math.floor(p1 * waveData.length);
+                let waveMax = 0;
+                for (let i = waveLow; i < waveHigh && i < waveData.length; i++) {
+                    const offset = Math.abs(waveData[i] - 128);
+                    if (offset > waveMax) waveMax = offset;
+                }
+
+                // 混合两者并独立归一化（每根条用自己的最大值）
+                const raw = Math.max(freqAvg * 0.4, waveMax * 1.5);
+                const norm = Math.min(1, raw / 150);
+
+                // 平滑过渡
+                smoothBar[b] = smoothBar[b] * 0.7 + norm * 0.3;
+                const finalNorm = Math.max(0.02, smoothBar[b]);
+
+                // 从中心向外扩散（中心镜像）
+                const barH = Math.max(1, finalNorm * maxH);
                 const x = b * (barW + 1.5);
-                const y = H - barH;
 
-                const hue = 180 - (b / numBars) * 160;
-                const lit = 50 + 30 * norm;
+                // 霓虹色：青 → 蓝 → 紫 → 粉
+                const hue = 170 - (b / numBars) * 140;
+                const lit = 55 + 25 * finalNorm;
 
-                const grad = canvasCtx.createLinearGradient(x, H, x, y);
-                grad.addColorStop(0, `hsla(${hue}, 100%, ${lit * 0.4}%, 0.1)`);
-                grad.addColorStop(0.5, `hsla(${hue}, 100%, ${lit}%, 0.7)`);
-                grad.addColorStop(1, `hsla(${hue + 30}, 100%, ${lit + 20}%, 1)`);
-                canvasCtx.fillStyle = grad;
-
+                // 上半条形
+                const yTop = centerY - barH;
+                const gradTop = canvasCtx.createLinearGradient(x, yTop, x, centerY);
+                gradTop.addColorStop(0, `hsla(${hue}, 100%, ${lit + 15}%, 0.9)`);
+                gradTop.addColorStop(0.5, `hsla(${hue + 10}, 100%, ${lit}%, 0.6)`);
+                gradTop.addColorStop(1, 'transparent');
+                
                 canvasCtx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-                canvasCtx.shadowBlur = 12 + 10 * norm;
-                canvasCtx.fillRect(x, y, barW, barH);
+                canvasCtx.shadowBlur = 15 + 10 * finalNorm;
+                canvasCtx.fillStyle = gradTop;
+                canvasCtx.fillRect(x, yTop, barW, barH);
+
+                // 下半条形（镜像）
+                const yBot = centerY + 2;
+                const gradBot = canvasCtx.createLinearGradient(x, yBot, x, yBot + barH);
+                gradBot.addColorStop(0, 'transparent');
+                gradBot.addColorStop(0.5, `hsla(${hue + 10}, 100%, ${lit}%, 0.6)`);
+                gradBot.addColorStop(1, `hsla(${hue}, 100%, ${lit + 15}%, 0.9)`);
+                canvasCtx.fillStyle = gradBot;
+                canvasCtx.fillRect(x, yBot, barW, barH);
                 canvasCtx.shadowBlur = 0;
+
+                // 条形顶端高光小圆点
+                if (finalNorm > 0.1) {
+                    const glowSize = 2 + 3 * finalNorm;
+                    canvasCtx.shadowColor = `hsl(${hue}, 100%, 70%)`;
+                    canvasCtx.shadowBlur = 20;
+                    canvasCtx.fillStyle = `hsla(${hue + 10}, 100%, 85%, ${0.4 + 0.5 * finalNorm})`;
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x + barW / 2, yTop, glowSize, 0, Math.PI * 2);
+                    canvasCtx.fill();
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(x + barW / 2, yBot + barH, glowSize, 0, Math.PI * 2);
+                    canvasCtx.fill();
+                    canvasCtx.shadowBlur = 0;
+                }
             }
 
-            canvasCtx.strokeStyle = 'rgba(0,245,212,0.15)';
-            canvasCtx.lineWidth = 1;
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(0, H - 0.5);
-            canvasCtx.lineTo(W, H - 0.5);
-            canvasCtx.stroke();
+            // 中心水平线
+            canvasCtx.shadowBlur = 0;
+            const glowGrad = canvasCtx.createLinearGradient(0, centerY, W, centerY);
+            glowGrad.addColorStop(0, 'transparent');
+            glowGrad.addColorStop(0.15, 'rgba(0,245,212,0.1)');
+            glowGrad.addColorStop(0.5, 'rgba(0,245,212,0.25)');
+            glowGrad.addColorStop(0.85, 'rgba(0,245,212,0.1)');
+            glowGrad.addColorStop(1, 'transparent');
+            canvasCtx.fillStyle = glowGrad;
+            canvasCtx.fillRect(0, centerY, W, 2);
         }
 
         // ===== 播放控制 =====
