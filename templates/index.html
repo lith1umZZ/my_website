@@ -408,7 +408,6 @@
             dataArray = new Uint8Array(analyser.frequencyBinCount);
             canvas = document.getElementById('visualizer');
             if (!canvas) return;
-            // 设置 Canvas 实际像素匹配显示尺寸
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
             canvasCtx = canvas.getContext('2d');
@@ -427,7 +426,6 @@
             requestAnimationFrame(drawNeon);
             if (!analyser || !canvasCtx) return;
             analyser.getByteFrequencyData(dataArray);
-            // 用 CSS 尺寸而非像素尺寸
             const rect = canvas.getBoundingClientRect();
             const W = rect.width, H = rect.height;
 
@@ -435,33 +433,41 @@
             canvasCtx.fillStyle = '#000';
             canvasCtx.fillRect(0, 0, W, H);
 
-            // 用64个条形，对数分布让频谱更均衡
             const numBars = 64;
             const barW = W / numBars - 1.5;
             const maxH = H * 0.85;
 
+            // 计算全局平均能量
+            let totalEnergy = 0;
+            for (let i = 0; i < dataArray.length; i++) totalEnergy += dataArray[i];
+            const avgEnergy = totalEnergy / dataArray.length;
+
+            // 差分数组 - 削平低频优势
+            const eqValues = new Array(numBars);
+            let eqMax = 0;
             for (let b = 0; b < numBars; b++) {
-                // 对数映射：让低频有更多条形，高频也有足够表现
-                const p0 = Math.pow(b / numBars, 0.55);
-                const p1 = Math.pow((b + 1) / numBars, 0.55);
+                const p0 = Math.pow(b / numBars, 0.65);
+                const p1 = Math.pow((b + 1) / numBars, 0.65);
                 const lowIdx = Math.floor(p0 * dataArray.length);
                 const highIdx = Math.floor(p1 * dataArray.length);
-                
-                // 取范围内的平均值
                 let sum = 0, count = 0;
                 for (let i = lowIdx; i < highIdx && i < dataArray.length; i++) {
                     sum += dataArray[i];
                     count++;
                 }
-                const avg = count > 0 ? sum / count : 0;
-                const norm = avg / 255;
+                const raw = count > 0 ? sum / count : 0;
+                // 高频增益曲线：越靠右增益越大
+                const gain = 1 + (b / numBars) * 2.5;
+                eqValues[b] = Math.min(255, raw * gain);
+                if (eqValues[b] > eqMax) eqMax = eqValues[b];
+            }
 
-                // 加一些动态平滑，让跳动更自然
+            for (let b = 0; b < numBars; b++) {
+                const norm = eqMax > 0 ? eqValues[b] / eqMax : 0;
                 const barH = Math.max(1, norm * maxH);
                 const x = b * (barW + 1.5);
                 const y = H - barH;
 
-                // 霓虹渐变：从左到右 青色 → 蓝紫 → 粉色
                 const hue = 180 - (b / numBars) * 160;
                 const lit = 50 + 30 * norm;
 
@@ -471,14 +477,12 @@
                 grad.addColorStop(1, `hsla(${hue + 30}, 100%, ${lit + 20}%, 1)`);
                 canvasCtx.fillStyle = grad;
 
-                // 发光效果
                 canvasCtx.shadowColor = `hsl(${hue}, 100%, 60%)`;
                 canvasCtx.shadowBlur = 12 + 10 * norm;
                 canvasCtx.fillRect(x, y, barW, barH);
                 canvasCtx.shadowBlur = 0;
             }
 
-            // 底部一根细线
             canvasCtx.strokeStyle = 'rgba(0,245,212,0.15)';
             canvasCtx.lineWidth = 1;
             canvasCtx.beginPath();
