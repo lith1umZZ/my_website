@@ -380,12 +380,6 @@
             playNext();
         });
 
-        // ===== 音量 =====
-        volumeSlider.addEventListener('input', function() {
-            audio.volume = parseFloat(this.value);
-            localStorage.setItem('player_volume', this.value);
-        });
-
         function seekProgress(event) {
             if (!audio.duration) return;
             const rect = progressTrack.getBoundingClientRect();
@@ -395,16 +389,42 @@
             progressThumb.style.left = (pct * 100) + '%';
         }
 
+        // ===== 音量（使用 GainNode 兼容 iOS） =====
+        let gainNode = null;
+
+        function setVolume(val) {
+            val = parseFloat(val);
+            if (gainNode) {
+                gainNode.gain.value = val;
+            }
+            localStorage.setItem('player_volume', val);
+        }
+
+        volumeSlider.addEventListener('input', function() {
+            setVolume(this.value);
+        });
+
         // ===== 全新霓虹频谱可视化 =====
         let audioCtx, analyser, source, freqData, waveData, canvas, canvasCtx;
         let smoothBar = []; // 平滑高度
+        let vizInitialized = false;
 
         function setupVisualizer() {
+            if (vizInitialized) return;
+            vizInitialized = true;
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioCtx.createAnalyser();
+            gainNode = audioCtx.createGain();
             source = audioCtx.createMediaElementSource(audio);
-            source.connect(analyser);
+            // 音频链：audio → source → gainNode → analyser → destination
+            source.connect(gainNode);
+            gainNode.connect(analyser);
             analyser.connect(audioCtx.destination);
+            // 恢复音量
+            const savedVol = localStorage.getItem('player_volume');
+            if (savedVol !== null) {
+                gainNode.gain.value = parseFloat(savedVol);
+            }
             analyser.fftSize = 256;
             freqData = new Uint8Array(analyser.frequencyBinCount);
             waveData = new Uint8Array(analyser.frequencyBinCount);
