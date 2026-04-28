@@ -408,31 +408,46 @@
             dataArray = new Uint8Array(analyser.frequencyBinCount);
             canvas = document.getElementById('visualizer');
             if (!canvas) return;
+            // 设置 Canvas 实际像素匹配显示尺寸
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
             canvasCtx = canvas.getContext('2d');
             drawNeon();
+        }
+
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * (window.devicePixelRatio || 1);
+            canvas.height = rect.height * (window.devicePixelRatio || 1);
+            canvasCtx = canvas.getContext('2d');
+            canvasCtx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
         }
 
         function drawNeon() {
             requestAnimationFrame(drawNeon);
             if (!analyser || !canvasCtx) return;
             analyser.getByteFrequencyData(dataArray);
-            const W = canvas.width, H = canvas.height;
+            // 用 CSS 尺寸而非像素尺寸
+            const rect = canvas.getBoundingClientRect();
+            const W = rect.width, H = rect.height;
 
             // 纯黑背景
             canvasCtx.fillStyle = '#000';
             canvasCtx.fillRect(0, 0, W, H);
 
-            // 把128个频段映射到64个条形，取对数分布让频谱更均衡
+            // 用64个条形，对数分布让频谱更均衡
             const numBars = 64;
             const barW = W / numBars - 1.5;
             const maxH = H * 0.85;
 
             for (let b = 0; b < numBars; b++) {
-                // 对数映射：将条形索引映射到频段范围
-                const lowIdx = Math.floor(Math.pow(b / numBars, 0.6) * dataArray.length);
-                const highIdx = Math.floor(Math.pow((b + 1) / numBars, 0.6) * dataArray.length);
+                // 对数映射：让低频有更多条形，高频也有足够表现
+                const p0 = Math.pow(b / numBars, 0.55);
+                const p1 = Math.pow((b + 1) / numBars, 0.55);
+                const lowIdx = Math.floor(p0 * dataArray.length);
+                const highIdx = Math.floor(p1 * dataArray.length);
                 
-                // 取该范围内的平均值
+                // 取范围内的平均值
                 let sum = 0, count = 0;
                 for (let i = lowIdx; i < highIdx && i < dataArray.length; i++) {
                     sum += dataArray[i];
@@ -441,11 +456,12 @@
                 const avg = count > 0 ? sum / count : 0;
                 const norm = avg / 255;
 
+                // 加一些动态平滑，让跳动更自然
                 const barH = Math.max(1, norm * maxH);
                 const x = b * (barW + 1.5);
                 const y = H - barH;
 
-                // 霓虹渐变：青色 → 蓝紫 → 粉色
+                // 霓虹渐变：从左到右 青色 → 蓝紫 → 粉色
                 const hue = 180 - (b / numBars) * 160;
                 const lit = 50 + 30 * norm;
 
