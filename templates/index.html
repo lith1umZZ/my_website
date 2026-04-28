@@ -395,7 +395,7 @@
             progressThumb.style.left = (pct * 100) + '%';
         }
 
-        // ===== 霓虹频谱可视化（简约版） =====
+        // ===== 霓虹频谱可视化（均衡版） =====
         let audioCtx, analyser, source, dataArray, canvas, canvasCtx;
 
         function setupVisualizer() {
@@ -404,7 +404,7 @@
             source = audioCtx.createMediaElementSource(audio);
             source.connect(analyser);
             analyser.connect(audioCtx.destination);
-            analyser.fftSize = 128;
+            analyser.fftSize = 256;
             dataArray = new Uint8Array(analyser.frequencyBinCount);
             canvas = document.getElementById('visualizer');
             if (!canvas) return;
@@ -422,19 +422,31 @@
             canvasCtx.fillStyle = '#000';
             canvasCtx.fillRect(0, 0, W, H);
 
-            const bars = dataArray.length;
-            const barW = W / bars - 1.5;
+            // 把128个频段映射到64个条形，取对数分布让频谱更均衡
+            const numBars = 64;
+            const barW = W / numBars - 1.5;
             const maxH = H * 0.85;
 
-            for (let i = 0; i < bars; i++) {
-                const norm = dataArray[i] / 255;
-                // 用平方让低频更突出，视觉更舒服
-                const barH = Math.max(1, norm * norm * maxH);
-                const x = i * (barW + 1.5);
+            for (let b = 0; b < numBars; b++) {
+                // 对数映射：将条形索引映射到频段范围
+                const lowIdx = Math.floor(Math.pow(b / numBars, 0.6) * dataArray.length);
+                const highIdx = Math.floor(Math.pow((b + 1) / numBars, 0.6) * dataArray.length);
+                
+                // 取该范围内的平均值
+                let sum = 0, count = 0;
+                for (let i = lowIdx; i < highIdx && i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                    count++;
+                }
+                const avg = count > 0 ? sum / count : 0;
+                const norm = avg / 255;
+
+                const barH = Math.max(1, norm * maxH);
+                const x = b * (barW + 1.5);
                 const y = H - barH;
 
-                // 霓虹渐变：底部青色 → 顶部紫色
-                const hue = 180 - (i / bars) * 120; // 青(180) → 蓝(240) → 紫(300)
+                // 霓虹渐变：青色 → 蓝紫 → 粉色
+                const hue = 180 - (b / numBars) * 160;
                 const lit = 50 + 30 * norm;
 
                 const grad = canvasCtx.createLinearGradient(x, H, x, y);
