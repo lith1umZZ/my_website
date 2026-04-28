@@ -395,10 +395,8 @@
             progressThumb.style.left = (pct * 100) + '%';
         }
 
-        // ===== 霓虹频谱可视化（赛博朋克风格） =====
-        let audioCtx, analyser, source, dataArray, timeData, canvas, canvasCtx;
-        let vizParticles = [];
-        let vizFrame = 0;
+        // ===== 霓虹频谱可视化（简约版） =====
+        let audioCtx, analyser, source, dataArray, canvas, canvasCtx;
 
         function setupVisualizer() {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -406,23 +404,11 @@
             source = audioCtx.createMediaElementSource(audio);
             source.connect(analyser);
             analyser.connect(audioCtx.destination);
-            analyser.fftSize = 256;
+            analyser.fftSize = 128;
             dataArray = new Uint8Array(analyser.frequencyBinCount);
-            timeData = new Uint8Array(analyser.frequencyBinCount);
             canvas = document.getElementById('visualizer');
             if (!canvas) return;
             canvasCtx = canvas.getContext('2d');
-            // 初始化粒子
-            for (let i = 0; i < 20; i++) {
-                vizParticles.push({
-                    x: Math.random() * canvas.width,
-                    y: Math.random() * canvas.height,
-                    vx: (Math.random() - 0.5) * 0.5,
-                    vy: (Math.random() - 0.5) * 0.5,
-                    size: Math.random() * 2 + 1,
-                    alpha: Math.random() * 0.4 + 0.1
-                });
-            }
             drawNeon();
         }
 
@@ -430,154 +416,47 @@
             requestAnimationFrame(drawNeon);
             if (!analyser || !canvasCtx) return;
             analyser.getByteFrequencyData(dataArray);
-            analyser.getByteTimeDomainData(timeData);
-            if (!canvasCtx) return;
             const W = canvas.width, H = canvas.height;
-            const cx = W / 2, cy = H / 2;
 
-            // 半透明渐变背景（拖尾效果）
-            canvasCtx.fillStyle = 'rgba(0,0,0,0.25)';
+            // 纯黑背景
+            canvasCtx.fillStyle = '#000';
             canvasCtx.fillRect(0, 0, W, H);
 
-            // ---- 底部发光横线 ----
-            for (let k = 0; k < 3; k++) {
-                canvasCtx.beginPath();
-                canvasCtx.moveTo(0, H - 4 + k * 2);
-                canvasCtx.lineTo(W, H - 4 + k * 2);
-                canvasCtx.strokeStyle = `rgba(0,245,212,${0.03 + k * 0.02})`;
-                canvasCtx.lineWidth = 1;
-                canvasCtx.stroke();
-            }
-
-            // ---- 中心镜像条形频谱（核心！）----
             const bars = dataArray.length;
-            const barW = (W / bars) * 1.8;
-            const barGap = 1;
-            let totalW = 0;
+            const barW = W / bars - 1.5;
+            const maxH = H * 0.85;
 
             for (let i = 0; i < bars; i++) {
-                // 用正弦波让条形高度更平滑
-                const raw = dataArray[i];
-                const norm = raw / 255;
-                const smooth = Math.pow(norm, 0.7) * (0.85 + 0.15 * Math.sin(i * 0.3 + vizFrame * 0.02));
-                const barH = Math.max(1, smooth * (H * 0.55));
+                const norm = dataArray[i] / 255;
+                // 用平方让低频更突出，视觉更舒服
+                const barH = Math.max(1, norm * norm * maxH);
+                const x = i * (barW + 1.5);
+                const y = H - barH;
 
-                // 霓虹渐变：靛蓝 → 青 → 品红 → 粉
-                const t = i / bars;
-                const hue = 170 + t * 120 + 10 * Math.sin(i * 0.1 + vizFrame * 0.03);
-                const sat = 90 + 10 * Math.sin(i * 0.2);
-                const lit = 55 + 25 * smooth;
+                // 霓虹渐变：底部青色 → 顶部紫色
+                const hue = 180 - (i / bars) * 120; // 青(180) → 蓝(240) → 紫(300)
+                const lit = 50 + 30 * norm;
 
-                // 上侧条形（向上）
-                const x = i * (barW + barGap);
-                const yTop = cy - barH;
+                const grad = canvasCtx.createLinearGradient(x, H, x, y);
+                grad.addColorStop(0, `hsla(${hue}, 100%, ${lit * 0.4}%, 0.1)`);
+                grad.addColorStop(0.5, `hsla(${hue}, 100%, ${lit}%, 0.7)`);
+                grad.addColorStop(1, `hsla(${hue + 30}, 100%, ${lit + 20}%, 1)`);
+                canvasCtx.fillStyle = grad;
 
-                // 主条形 —— 渐变
-                const gradTop = canvasCtx.createLinearGradient(x, yTop, x, cy);
-                gradTop.addColorStop(0, `hsla(${hue}, ${sat}%, ${lit}%, 0.95)`);
-                gradTop.addColorStop(0.5, `hsla(${hue + 20}, ${sat}%, ${lit - 10}%, 0.7)`);
-                gradTop.addColorStop(1, `hsla(${hue + 40}, ${sat - 20}%, ${lit - 20}%, 0)`);
-                canvasCtx.fillStyle = gradTop;
-                canvasCtx.fillRect(x, yTop, barW, barH);
-
-                // 条形发光光晕
+                // 发光效果
                 canvasCtx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-                canvasCtx.shadowBlur = 18 + 12 * smooth;
-                canvasCtx.fillRect(x, yTop, barW, barH * 0.15);
+                canvasCtx.shadowBlur = 12 + 10 * norm;
+                canvasCtx.fillRect(x, y, barW, barH);
                 canvasCtx.shadowBlur = 0;
-
-                // 上侧顶端高光亮点
-                if (smooth > 0.3) {
-                    canvasCtx.beginPath();
-                    canvasCtx.arc(x + barW / 2, yTop, 3 + 4 * smooth, 0, Math.PI * 2);
-                    canvasCtx.fillStyle = `hsla(${hue + 10}, 100%, 80%, ${0.4 + 0.5 * smooth})`;
-                    canvasCtx.shadowColor = `hsl(${hue}, 100%, 70%)`;
-                    canvasCtx.shadowBlur = 25;
-                    canvasCtx.fill();
-                    canvasCtx.shadowBlur = 0;
-                }
-
-                // ---- 下侧条形（向下镜像）----
-                const yBot = cy + 2;
-                const gradBot = canvasCtx.createLinearGradient(x, yBot, x, yBot + barH);
-                gradBot.addColorStop(0, `hsla(${hue + 40}, ${sat - 20}%, ${lit - 20}%, 0)`);
-                gradBot.addColorStop(0.5, `hsla(${hue + 20}, ${sat}%, ${lit - 10}%, 0.7)`);
-                gradBot.addColorStop(1, `hsla(${hue}, ${sat}%, ${lit}%, 0.95)`);
-                canvasCtx.fillStyle = gradBot;
-                canvasCtx.fillRect(x, yBot, barW, barH);
-
-                // 下侧发光光晕
-                canvasCtx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-                canvasCtx.shadowBlur = 18 + 12 * smooth;
-                canvasCtx.fillRect(x, yBot + barH * 0.85, barW, barH * 0.15);
-                canvasCtx.shadowBlur = 0;
-
-                // 下侧底端高光亮点
-                if (smooth > 0.3) {
-                    canvasCtx.beginPath();
-                    canvasCtx.arc(x + barW / 2, yBot + barH, 3 + 4 * smooth, 0, Math.PI * 2);
-                    canvasCtx.fillStyle = `hsla(${hue + 10}, 100%, 80%, ${0.4 + 0.5 * smooth})`;
-                    canvasCtx.shadowColor = `hsl(${hue}, 100%, 70%)`;
-                    canvasCtx.shadowBlur = 25;
-                    canvasCtx.fill();
-                    canvasCtx.shadowBlur = 0;
-                }
-
-                totalW = x + barW;
             }
 
-            // ---- 中心分割线（一条细光带）----
-            const glowGrad = canvasCtx.createLinearGradient(0, cy - 2, W, cy - 2);
-            glowGrad.addColorStop(0, 'transparent');
-            glowGrad.addColorStop(0.15, 'rgba(0,245,212,0.2)');
-            glowGrad.addColorStop(0.5, 'rgba(0,245,212,0.4)');
-            glowGrad.addColorStop(0.85, 'rgba(0,245,212,0.2)');
-            glowGrad.addColorStop(1, 'transparent');
-            canvasCtx.fillStyle = glowGrad;
-            canvasCtx.fillRect(0, cy - 1, totalW, 2);
-
-            // ---- 波形线（覆盖在频谱上方）----
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(0, H / 2 + (timeData[0] - 128) / 3);
-            for (let i = 1; i < timeData.length; i++) {
-                const xP = (i / timeData.length) * totalW;
-                const yP = H / 2 + (timeData[i] - 128) / 3;
-                canvasCtx.lineTo(xP, yP);
-            }
-            canvasCtx.strokeStyle = 'rgba(0,245,212,0.25)';
-            canvasCtx.lineWidth = 1.5;
-            canvasCtx.shadowColor = 'rgba(0,245,212,0.3)';
-            canvasCtx.shadowBlur = 8;
-            canvasCtx.stroke();
-            canvasCtx.shadowBlur = 0;
-
-            // ---- 浮动粒子 ---- 
-            for (const p of vizParticles) {
-                p.x += p.vx;
-                p.y += p.vy;
-                if (p.x < 0 || p.x > W) p.vx *= -1;
-                if (p.y < 0 || p.y > H) p.vy *= -1;
-                canvasCtx.beginPath();
-                canvasCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                canvasCtx.fillStyle = `rgba(0,245,212,${p.alpha + 0.1 * Math.sin(vizFrame * 0.02 + p.x)})`;
-                canvasCtx.fill();
-            }
-
-            // ---- 角落科技感装饰 ---- 
-            // 左上角
-            canvasCtx.strokeStyle = 'rgba(0,245,212,0.12)';
+            // 底部一根细线
+            canvasCtx.strokeStyle = 'rgba(0,245,212,0.15)';
             canvasCtx.lineWidth = 1;
             canvasCtx.beginPath();
-            canvasCtx.moveTo(8, 0); canvasCtx.lineTo(8, 16);
-            canvasCtx.moveTo(0, 8); canvasCtx.lineTo(16, 8);
+            canvasCtx.moveTo(0, H - 0.5);
+            canvasCtx.lineTo(W, H - 0.5);
             canvasCtx.stroke();
-            // 右上角
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(W - 8, 0); canvasCtx.lineTo(W - 8, 16);
-            canvasCtx.moveTo(W - 16, 8); canvasCtx.lineTo(W, 8);
-            canvasCtx.stroke();
-
-            vizFrame++;
         }
 
         // ===== 播放控制 =====
